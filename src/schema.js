@@ -23,16 +23,17 @@ export const NODE_TYPES = {
   gate: { ko: '출입통제문', color: '#c0392b' },
 };
 
+// color: 3D 면 색(파스텔), ink: 글자·테두리용 진한 색
 export const ROOM_TYPES = {
-  lecture: { ko: '강의실', color: '#4f8ef7' },
-  lab: { ko: '실험실·연구실', color: '#36b37e' },
-  office: { ko: '사무실·행정실', color: '#f5a623' },
-  toilet: { ko: '화장실', color: '#00b8d9' },
-  stair: { ko: '계단실', color: '#d9822b' },
-  elevator: { ko: '엘리베이터', color: '#7b5ad6' },
-  lounge: { ko: '휴게·라운지', color: '#ff7eb6' },
-  store: { ko: '매점·편의', color: '#ffab00' },
-  other: { ko: '기타', color: '#9aa5b1' },
+  lecture: { ko: '강의실', color: '#8fb4ff', ink: '#2f5fd0' },
+  lab: { ko: '실험실·연구실', color: '#7fd3ab', ink: '#1f8a5b' },
+  office: { ko: '사무실·연구실', color: '#ffd283', ink: '#b26a00' },
+  toilet: { ko: '화장실', color: '#84d8ea', ink: '#0d7f94' },
+  stair: { ko: '계단실', color: '#f2bb86', ink: '#b05f12' },
+  elevator: { ko: '엘리베이터', color: '#bcaaf1', ink: '#5f3fc0' },
+  lounge: { ko: '휴게·동아리', color: '#ffb0d3', ink: '#c2347a' },
+  store: { ko: '매점·편의', color: '#ffe08a', ink: '#9a6b00' },
+  other: { ko: '기타', color: '#d3dae3', ink: '#5b6775' },
 };
 
 export const HOW_KO = {

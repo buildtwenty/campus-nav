@@ -1,10 +1,10 @@
 // 궤도 카메라 + 자동 프레이밍
 import * as THREE from 'three';
 
-export const VIEWS = { iso: [3.72, 1.02], top: [3.72, 0.08], side: [3.72, 1.43] };
+export const VIEWS = { iso: [3.72, 0.92], top: [3.72, 0.08], side: [3.72, 1.43] };
 
 export function createOrbit(camera, canvas) {
-  const o = { theta: 3.72, phi: 1.02, r: 520, t: new THREE.Vector3(), goal: null, goalT: null, goalR: null };
+  const o = { theta: 3.72, phi: 0.92, r: 520, t: new THREE.Vector3(), goal: null, goalT: null, goalR: null };
   const ptrs = new Map(); let pinch = 0;
   const zoom = (f) => { o.goalT = null; o.r = Math.min(3000, Math.max(40, o.r * f)); };
 
