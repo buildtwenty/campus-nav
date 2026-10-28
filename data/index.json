@@ -1,0 +1,13 @@
+[
+  {
+    "id": "kmu-engineering",
+    "name": "국민대학교 공학관",
+    "campus": "국민대학교 북악캠퍼스",
+    "file": "data/venues/kmu-engineering.json",
+    "floors": 7,
+    "rooms": 80,
+    "estRatio": 1,
+    "updated": "2026-10-28",
+    "status": "draft"
+  }
+]

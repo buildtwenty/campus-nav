@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>캠퍼스 건물 3D 안내</title>
+<meta name="description" content="대학 건물의 출입구·엘리베이터·화장실·강의실 위치를 층별 3D로 보여주는 안내 지도">
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+</script>
+<style>
+  :root {
+    --bg: #f4f6fa; --panel: #ffffff; --text: #1b2430; --muted: #6b7684; --border: #e1e6ee;
+    --accent: #2f6fed; --wall: #6b7a90; --slab: #9fb3c8; --line: #3b4a5e; --route: #ff5a36;
+    --est: #b7791f; --est-bg: #fff6e0; --ok: #2e9e5b;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg: #0f141b; --panel: #171e27; --text: #e6ebf2; --muted: #93a0b0; --border: #27313d;
+    --wall: #8ea2bb; --slab: #5c7089; --line: #b8c6d8; --est-bg: #3a2e14;
+  } }
+  :root[data-theme="dark"] { --bg: #0f141b; --panel: #171e27; --text: #e6ebf2; --muted: #93a0b0; --border: #27313d; --wall: #8ea2bb; --slab: #5c7089; --line: #b8c6d8; --est-bg: #3a2e14; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif; }
+  body { display: grid; grid-template-columns: 1fr 360px; grid-template-rows: 100%; }
+  #view { width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
+  #stage { position: relative; min-width: 0; }
+  #hud { position: absolute; left: 12px; top: 12px; display: flex; gap: 6px; flex-wrap: wrap; }
+  #floors { position: absolute; right: 12px; top: 12px; display: flex; flex-direction: column; gap: 4px; }
+  button, select, input[type=text], input[type=search] { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+  button { cursor: pointer; }
+  button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #floors button { min-width: 52px; }
+  aside { background: var(--panel); border-left: 1px solid var(--border); padding: 14px 16px; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+  h1 { font-size: 18px; margin: 0; }
+  #meta, .muted, small { color: var(--muted); font-size: 13px; }
+  .tag { display: inline-block; font-size: 12px; padding: 1px 7px; border-radius: 999px; }
+  .tag.est { background: var(--est-bg); color: var(--est); }
+  #search { width: 100%; }
+  #rooms { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+  #rooms li { padding: 6px 10px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
+  #rooms li:last-child { border-bottom: 0; }
+  #rooms li.on { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  #rooms li small { margin-left: auto; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; align-self: center; }
+  #roomInfo { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .rno { font-size: 20px; font-weight: 700; }
+  .rname { font-size: 15px; margin-top: 2px; }
+  #facts { margin: 0; padding-left: 18px; font-size: 13px; }
+  #facts li.ok::marker { color: var(--ok); } #facts li.est::marker { color: var(--est); }
+  #routePanel { border-top: 1px solid var(--border); padding-top: 10px; }
+  #routePanel .row { display: flex; gap: 6px; margin-bottom: 6px; }
+  #routePanel select { flex: 1; min-width: 0; }
+  #steps { padding-left: 20px; margin: 8px 0 0; }
+  #steps li { margin: 3px 0; }
+  #steps li.elevator::marker { color: #7b5ad6; } #steps li.stair::marker { color: #d9822b; }
+  #legend { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--muted); }
+  #legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  footer { margin-top: auto; font-size: 12px; color: var(--muted); }
+  footer a { color: var(--accent); }
+  #panelToggle { display: none; }
+  @media (max-width: 760px) {
+    body { grid-template-columns: 1fr; grid-template-rows: 55% 45%; }
+    aside { border-left: 0; border-top: 1px solid var(--border); }
+    #floors { flex-direction: row; flex-wrap: wrap; left: 12px; right: 12px; top: auto; bottom: 10px; }
+  }
+  body.embed aside { display: none; }
+  body.embed { grid-template-columns: 1fr; }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="view" tabindex="0" aria-label="건물 3D 모형. 드래그로 회전, 휠로 확대"></canvas>
+    <div id="hud">
+      <button data-view="iso">입체</button>
+      <button data-view="top">위에서</button>
+      <button data-view="side">옆에서</button>
+    </div>
+    <div id="floors"></div>
+  </div>
+  <aside>
+    <select id="building" aria-label="건물 선택"></select>
+    <div>
+      <h1 id="title">…</h1>
+      <div id="meta"></div>
+    </div>
+    <input id="search" type="search" placeholder="방 번호·이름 검색 (예: 301, 화장실)">
+    <ul id="rooms"></ul>
+    <div id="roomInfo" hidden></div>
+    <div id="routePanel" hidden>
+      <div class="row"><select id="fromEnt"></select></div>
+      <div class="row"><select id="toRoom"></select><button id="go">길찾기</button></div>
+      <label class="muted"><input type="checkbox" id="noStairs"> 계단 없이 (엘리베이터만)</label>
+      <ol id="steps"></ol>
+    </div>
+    <div id="legend"></div>
+    <details><summary class="muted">확인한 것 / 추정한 것</summary><ul id="facts"></ul></details>
+    <div class="row" style="display:flex;gap:6px">
+      <button id="share" data-url="">링크 복사</button>
+      <a id="editLink" href="editor.html"><button type="button">편집기에서 열기</button></a>
+    </div>
+    <footer>데이터는 공개 도면을 보고 손으로 그린 것이라 오차가 있습니다. "추정" 표시는 현장 확인 전입니다. <a href="https://github.com/buildtwenty/campus-nav">GitHub</a></footer>
+  </aside>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>
