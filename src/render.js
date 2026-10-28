@@ -71,14 +71,18 @@ export class VenueView {
       const h = f.height || DEFAULT_FLOOR_HEIGHT;
       const fg = new THREE.Group();
       fg.position.y = this.Y(f.y);
-      // 바닥판
-      const slab = new THREE.Mesh(extrude(f.poly, 0.12), new THREE.MeshStandardMaterial({ color: slabColor, transparent: true, opacity: OPACITY.slabIdle, depthWrite: false }));
+      const polys = f.polys && f.polys.length ? f.polys : [f.poly];   // 한 층에 조각이 여럿일 수 있음
+      // 바닥판 (조각 전부를 하나의 Shape 배열로 압출)
+      const slabMat = new THREE.MeshStandardMaterial({ color: slabColor, transparent: true, opacity: OPACITY.slabIdle, depthWrite: false });
+      const wallMat = new THREE.MeshStandardMaterial({ color: wallColor, transparent: true, opacity: OPACITY.wallIdle, depthWrite: false, side: THREE.DoubleSide });
+      const lineMat = new THREE.LineBasicMaterial({ color: lineColor, transparent: true, opacity: 0.55 });
+      const slab = new THREE.Mesh(new THREE.ExtrudeGeometry(polys.map(shapeOf), { depth: 0.12, bevelEnabled: false }), slabMat);
       slab.rotation.x = -Math.PI / 2; fg.add(slab);
       // 외벽 (반투명 압출)
-      const walls = new THREE.Mesh(extrude(f.poly, this.Y(h) - 0.12), new THREE.MeshStandardMaterial({ color: wallColor, transparent: true, opacity: OPACITY.wallIdle, depthWrite: false, side: THREE.DoubleSide }));
+      const walls = new THREE.Mesh(new THREE.ExtrudeGeometry(polys.map(shapeOf), { depth: this.Y(h) - 0.12, bevelEnabled: false }), wallMat);
       walls.rotation.x = -Math.PI / 2; walls.position.y = 0.12; fg.add(walls);
       // 외곽선
-      const outline = new THREE.LineSegments(new THREE.EdgesGeometry(walls.geometry, 30), new THREE.LineBasicMaterial({ color: lineColor, transparent: true, opacity: 0.55 }));
+      const outline = new THREE.LineSegments(new THREE.EdgesGeometry(walls.geometry, 30), lineMat);
       outline.rotation.x = -Math.PI / 2; outline.position.y = 0.12; fg.add(outline);
       // 방
       const rooms = [], labels = [];
@@ -96,8 +100,8 @@ export class VenueView {
         lab.position.set(cx, this.Y(rh) + 1.0, cz); lab.visible = false; lab.userData.room = r;
         fg.add(lab); labels.push(lab);
       }
-      // 층 이름표 (외곽 왼쪽 위 모서리)
-      const bb = bbox([f.poly]);
+      // 층 이름표 (외곽 왼쪽 아래 모서리)
+      const bb = bbox(polys);
       const fl = makeLabel(f.label || f.id, { size: 1.6, bg: 'rgba(30,40,60,0.8)', color: '#fff' });
       fl.position.set(bb.minX - 4, 0.6, bb.maxZ); fl.userData.floorLabel = f.id;
       fg.add(fl);
@@ -107,6 +111,7 @@ export class VenueView {
 
     // 노드: 출입구 핀, 엘리베이터 샤프트, 계단 플라이트
     this.nodeGroup = new THREE.Group(); g.add(this.nodeGroup);
+    this.inst = {};
     const byKey = {};
     for (const [id, n] of Object.entries(v.nodes)) {
       const t = NODE_TYPES[n.type] || NODE_TYPES.corridor;
@@ -121,10 +126,11 @@ export class VenueView {
       const ys = [...new Set(c.ys)].sort((a, b) => a - b);
       if (c.t === 'elevator') this.addElevator(c, ys); else this.addStairs(c, ys);
     }
+    this.flushInstances();
 
     // 바닥 그리드 (가장 낮은 층 아래)
     const lowest = sorted.length ? this.Y(sorted[0].y) - 0.3 : 0;
-    const all = bbox(v.floors.map((f) => f.poly));
+    const all = bbox(v.floors.flatMap((f) => (f.polys && f.polys.length ? f.polys : [f.poly])));
     const span = Math.max(all.maxX - all.minX, all.maxZ - all.minZ) * 1.6 || 50;
     const grid = new THREE.GridHelper(span, Math.round(span / 5), lineColor, lineColor);
     grid.material.transparent = true; grid.material.opacity = 0.12;
@@ -178,28 +184,62 @@ export class VenueView {
     lab.position.set(c.x, this.Y(y1) + 1.0, c.z); this.nodeGroup.add(lab);
   }
 
-  /** 계단: 층 사이마다 단을 쌓은 플라이트 (x 방향으로 오르는 직선 계단) */
+  /** 인스턴스 박스 하나 예약 (kind: tread | slab | rail). 마지막에 flushInstances()가 InstancedMesh로 만든다 */
+  box(kind, x, y, z, sx, sy, sz, rotZ = 0) {
+    const m = new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, rotZ)), new THREE.Vector3(sx, sy, sz));
+    (this.inst[kind] = this.inst[kind] || []).push(m);
+  }
+  flushInstances() {
+    const mats = {
+      tread: new THREE.MeshStandardMaterial({ color: 0xf6d2a2, roughness: 0.55 }),
+      slab: new THREE.MeshStandardMaterial({ color: 0xd9822b, roughness: 0.7 }),
+      rail: new THREE.MeshStandardMaterial({ color: 0x4a3b2e, roughness: 0.4, metalness: 0.3 }),
+    };
+    const unit = new THREE.BoxGeometry(1, 1, 1);
+    for (const [kind, list] of Object.entries(this.inst)) {
+      if (!list.length) continue;
+      const im = new THREE.InstancedMesh(unit, mats[kind], list.length);
+      list.forEach((m, i) => im.setMatrixAt(i, m));
+      im.instanceMatrix.needsUpdate = true;
+      this.nodeGroup.add(im);
+    }
+  }
+
+  /**
+   * 계단: ㄷ자 꺾임계단. 한 층을 두 플라이트로 오른다.
+   * 올라갈 때 +x로 간 뒤 랜딩에서 돌아 -x로 (위에서 보면 반시계) → 내려갈 때는 시계방향.
+   */
   addStairs(c, ys) {
     const col = new THREE.Color(c.color);
-    const mat = new THREE.MeshStandardMaterial({ color: col, roughness: 0.7 });
-    const steps = 10, run = 3.2, width = 2.4, tread = run / steps;
-    // 노드가 찍힌 최저층~최고층 사이의 모든 층에 플라이트를 그린다 (중간 층 노드가 아직 없어도 계단은 이어진다)
+    const W = 1.3, run = 3.3, landing = 1.4, T = 0.1, n = 12;      // 플라이트 폭, 길이, 랜딩 깊이, 디딤판 두께, 단 수
+    const tread = run / n, x0 = c.x - (run + landing) / 2;        // 첫 단 시작 x
     const lo = ys[0], hi = ys[ys.length - 1];
     const floorYs = this.v.floors.map((f) => f.y).filter((y) => y >= lo - 0.01 && y <= hi + 0.01).sort((a, b) => a - b);
     const spans = (floorYs.length ? floorYs : ys).map((y) => [y, y + this.floorGap(y)]);
     for (const [ya, yb] of spans) {
-      const rise = this.Y(yb - ya) / steps;
-      for (let i = 0; i < steps; i++) {
-        const hgt = rise * (i + 1);
-        const m = new THREE.Mesh(new THREE.BoxGeometry(tread, hgt, width), mat);
-        m.position.set(c.x - run / 2 + tread * (i + 0.5), this.Y(ya) + hgt / 2, c.z);
-        this.nodeGroup.add(m);
-      }
+      const H = this.Y(yb - ya), rise = H / (2 * n), base = this.Y(ya);
+      const zA = c.z + W / 2, zB = c.z - W / 2;                     // A: 남쪽 줄(+z), B: 북쪽 줄(-z)
+      // 플라이트 A (+x 방향)
+      for (let i = 0; i < n; i++) this.box('tread', x0 + tread * (i + 0.5), base + rise * (i + 1), zA, tread * 0.92, T, W);
+      // 랜딩
+      this.box('slab', x0 + run + landing / 2, base + rise * n - T / 2, c.z, landing, T * 1.5, 2 * W);
+      // 플라이트 B (-x 방향)
+      for (let i = 0; i < n; i++) this.box('tread', x0 + run - tread * (i + 0.5), base + rise * (n + i + 1), zB, tread * 0.92, T, W);
+      // 경사 슬래브(디딤판 밑) + 난간
+      const len = Math.hypot(run, rise * n), ang = Math.atan2(rise * n, run);
+      const midA = [x0 + run / 2, base + rise * n / 2 - 0.2], midB = [x0 + run / 2, base + rise * n * 1.5 - 0.2];
+      this.box('slab', midA[0], midA[1], zA, len, 0.14, W, ang);
+      this.box('slab', midB[0], midB[1], zB, len, 0.14, W, -ang);
+      this.box('rail', midA[0], midA[1] + 1.1, zA + W / 2, len, 0.05, 0.05, ang);     // A 바깥쪽
+      this.box('rail', midB[0], midB[1] + 1.1, zB - W / 2, len, 0.05, 0.05, -ang);    // B 바깥쪽
+      this.box('rail', midA[0], midA[1] + 1.1, c.z + 0.03, len, 0.05, 0.05, ang);     // 가운데 난간(두 플라이트 사이)
+      this.box('rail', midB[0], midB[1] + 1.1, c.z - 0.03, len, 0.05, 0.05, -ang);
+      this.box('rail', x0 + run + landing - 0.05, base + rise * n + 0.55, c.z, 0.05, 1.1, 2 * W); // 랜딩 끝 난간
     }
-    // 계단실 외곽선
+    // 계단실 외곽선 + 이름표
     const y0 = spans[0][0], y1 = spans[spans.length - 1][1], h = this.Y(y1 - y0);
-    const box = new THREE.BoxGeometry(run + 0.6, h, width + 0.6);
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(box), new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.6 }));
+    const shaft = new THREE.BoxGeometry(run + landing + 0.5, h, 2 * W + 0.5);
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(shaft), new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.5 }));
     edges.position.set(c.x, this.Y(y0) + h / 2, c.z); this.nodeGroup.add(edges);
     const lab = makeLabel(c.label || '계단', { size: 1.3, bg: 'rgba(217,130,43,0.92)', color: '#fff' });
     lab.position.set(c.x, this.Y(y1) + 1.0, c.z); this.nodeGroup.add(lab);

@@ -17,8 +17,12 @@ export function validate(v) {
     if (floorIds.has(f.id)) err(`층 id 중복: ${f.id}`);
     floorIds.add(f.id);
     if (typeof f.y !== 'number') err(`층 ${f.id}: y(높이)가 숫자가 아닙니다`);
-    if (!f.poly || f.poly.length < 3) err(`층 ${f.id}: 외곽 poly가 3점 미만`);
-    else if (area(f.poly) < 1) warn(`층 ${f.id}: 외곽 면적이 1 m² 미만 (축척 확인)`);
+    const polys = f.polys && f.polys.length ? f.polys : [f.poly];
+    polys.forEach((p, i) => {
+      const tag = polys.length > 1 ? `층 ${f.id} 조각 ${i + 1}` : `층 ${f.id}`;
+      if (!p || p.length < 3) err(`${tag}: 외곽 poly가 3점 미만`);
+      else if (area(p) < 1) warn(`${tag}: 외곽 면적이 1 m² 미만 (축척 확인)`);
+    });
     if (!f.height) warn(`층 ${f.id}: height 없음 → 기본값 사용`);
     if (!f.plan || !f.plan.file) warn(`층 ${f.id}: 참고 도면(plan.file)이 없음 → 나중에 수정하기 어렵습니다`);
   }
@@ -30,10 +34,11 @@ export function validate(v) {
     if (!floorIds.has(r.floor)) err(`방 ${r.id}: 없는 층 ${r.floor}`);
     if (!r.poly || r.poly.length < 3) err(`방 ${r.id}: poly가 3점 미만`);
     if (!r.no) warn(`방 ${r.id}: 번호(no) 없음`);
-    else (roomNos[r.no] = roomNos[r.no] || []).push(r.id);
+    else { const k = `${r.floor}/${r.no}`; (roomNos[k] = roomNos[k] || []).push(r.id); }   // 같은 층 안에서만 중복 검사 (화장실 WC-1 등은 층마다 반복)
     if (r.type && !ROOM_TYPES[r.type]) warn(`방 ${r.id}: 모르는 type ${r.type}`);
     const f = (v.floors || []).find((f) => f.id === r.floor);
-    if (f && f.poly && r.poly && r.poly.length >= 3 && !pointInPoly(centroid(r.poly), f.poly)) warn(`방 ${r.no || r.id}: 중심이 층 외곽 밖`);
+    const fpolys = f ? (f.polys && f.polys.length ? f.polys : [f.poly]) : [];
+    if (fpolys.length && r.poly && r.poly.length >= 3 && !fpolys.some((p) => p && pointInPoly(centroid(r.poly), p))) warn(`방 ${r.no || r.id}: 중심이 층 외곽 밖`);
   }
   for (const [no, ids] of Object.entries(roomNos)) if (ids.length > 1) warn(`방 번호 ${no} 중복: ${ids.join(', ')}`);
 

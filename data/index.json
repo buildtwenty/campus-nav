@@ -5,7 +5,7 @@
     "campus": "국민대학교 북악캠퍼스",
     "file": "data/venues/kmu-engineering.json",
     "floors": 7,
-    "rooms": 80,
+    "rooms": 301,
     "estRatio": 1,
     "updated": "2026-10-28",
     "status": "draft"
